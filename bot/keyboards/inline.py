@@ -1,0 +1,71 @@
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+
+def subjects_kb(subjects: list[dict], prefix: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for subject in subjects:
+        builder.button(text=subject["name"], callback_data=f"{prefix}:{subject['id']}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def dates_kb(subject_id: int, dates: list[str]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for date in dates:
+        builder.button(text=date, callback_data=f"date:{subject_id}:{date}")
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="⬅️ К предметам", callback_data="back_subjects"))
+    return builder.as_markup()
+
+
+def homework_list_kb(subject_id: int, date: str, items: list[dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for item in items:
+        builder.button(text=f"№{item['id']} · {item['created_at'][11:16]}", callback_data=f"hw:{item['id']}")
+    builder.button(text="⬅️ К датам", callback_data=f"subj:{subject_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def back_to_homework_kb(subject_id: int, date: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ Назад к списку", callback_data=f"date:{subject_id}:{date}")
+    return builder.as_markup()
+
+
+def confirm_homework_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Сохранить", callback_data="confirm_hw")
+    builder.button(text="❌ Отмена", callback_data="cancel_hw")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def meta_topics_kb(topics: list[dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for topic in topics:
+        builder.button(
+            text=f"Тема {topic['number']} — {topic['people_count']} чел.",
+            callback_data=f"mtopic:{topic['id']}",
+        )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def meta_topic_detail_kb(topic_id: int, joined: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if joined:
+        builder.button(text="🚪 Выйти из очереди", callback_data=f"mleave:{topic_id}")
+    builder.button(text="⬅️ К списку тем", callback_data="mback")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admins_list_kb(admins: list[dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for admin in admins:
+        label = admin["full_name"] or admin["username"] or str(admin["user_id"])
+        builder.button(text=f"🗑 {label}", callback_data=f"deladmin:{admin['user_id']}")
+    builder.adjust(1)
+    return builder.as_markup()
