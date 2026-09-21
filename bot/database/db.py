@@ -75,7 +75,23 @@ async def init_db() -> None:
         )
         for order, name in enumerate(SUBJECTS):
             await db.execute(
-                "INSERT OR IGNORE INTO subjects (name, sort_order) VALUES (?, ?)",
+                """
+                INSERT INTO subjects (name, sort_order) VALUES (?, ?)
+                ON CONFLICT(name) DO UPDATE SET sort_order = excluded.sort_order
+                """,
                 (name, order),
             )
+
+        # Предметы, убранные из SUBJECTS, удаляем из справочника — но только
+        # если по ним ещё нет ни ДЗ, ни тем очереди (иначе рискуем сломать FK).
+        placeholders = ",".join("?" for _ in SUBJECTS)
+        await db.execute(
+            f"""
+            DELETE FROM subjects
+            WHERE name NOT IN ({placeholders})
+              AND id NOT IN (SELECT DISTINCT subject_id FROM homework)
+              AND id NOT IN (SELECT DISTINCT subject_id FROM meta_topics)
+            """,
+            SUBJECTS,
+        )
         await db.commit()
