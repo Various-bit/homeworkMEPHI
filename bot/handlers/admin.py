@@ -34,30 +34,20 @@ async def process_subject(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.update_data(subject_id=subject_id, subject_name=subject["name"])
-    await callback.message.edit_text(f"Предмет: «{subject['name']}»")
+    await state.set_state(AddHomework.description)
 
     if subject["name"] == META_SUBJECT_NAME:
-        await state.set_state(AddHomework.topics_count)
-        await callback.message.answer(
-            "Сколько тем в этом задании? Пришлите число.\n"
-            "⚠️ Это заменит текущий список тем и обнулит очередь по ним.",
-            reply_markup=cancel_kb(),
+        await state.update_data(shift_meta_queue=True)
+        await callback.message.edit_text(
+            f"Предмет: «{subject['name']}»\n"
+            "⚠️ После сохранения задания очередь сдвинется: очередь на "
+            "Занятие 1 удалится, 2→1, 3→2, откроется новое Занятие 3."
         )
     else:
-        await state.set_state(AddHomework.description)
-        await callback.message.answer("Теперь введите текст задания:", reply_markup=cancel_kb())
+        await callback.message.edit_text(f"Предмет: «{subject['name']}»")
+
+    await callback.message.answer("Теперь введите текст задания:", reply_markup=cancel_kb())
     await callback.answer()
-
-
-@router.message(AddHomework.topics_count)
-async def process_topics_count(message: Message, state: FSMContext) -> None:
-    if not message.text or not message.text.strip().isdigit() or int(message.text.strip()) < 1:
-        await message.answer("Пришлите положительное число тем.")
-        return
-
-    await state.update_data(topics_count=int(message.text.strip()))
-    await state.set_state(AddHomework.description)
-    await message.answer("Теперь введите текст задания:", reply_markup=cancel_kb())
 
 
 @router.message(AddHomework.description)
@@ -123,9 +113,9 @@ async def confirm_homework(callback: CallbackQuery, state: FSMContext, config: C
     )
 
     text = "✅ Задание сохранено."
-    if data.get("topics_count"):
-        await db.reset_meta_topics(data["subject_id"], data["topics_count"])
-        text += f"\n♻️ Создано тем: {data['topics_count']}, очередь по ним обнулена."
+    if data.get("shift_meta_queue"):
+        await db.shift_meta_sessions(data["subject_id"])
+        text += "\n♻️ Очередь по темам сдвинута: Занятие 1 закрыто, 2→1, 3→2, открыто новое Занятие 3."
 
     await state.clear()
 

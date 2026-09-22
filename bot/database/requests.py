@@ -2,6 +2,7 @@ from datetime import datetime
 
 import aiosqlite
 
+from bot.constants import META_SESSIONS_COUNT
 from bot.database.db import get_db_path
 
 
@@ -173,40 +174,6 @@ async def delete_homework(homework_id: int) -> bool:
 
 # ---------- Темы и очередь (метаязыки) ----------
 
-async def reset_meta_topics(subject_id: int, count: int) -> None:
-    """Полностью заменяет набор тем предмета новым (1..count), очередь обнуляется."""
-    now = datetime.now().isoformat()
-    async with aiosqlite.connect(get_db_path()) as db:
-        await db.execute(
-            "DELETE FROM meta_queue WHERE topic_id IN (SELECT id FROM meta_topics WHERE subject_id = ?)",
-            (subject_id,),
-        )
-        await db.execute("DELETE FROM meta_topics WHERE subject_id = ?", (subject_id,))
-        await db.executemany(
-            "INSERT INTO meta_topics (subject_id, number, created_at) VALUES (?, ?, ?)",
-            [(subject_id, number, now) for number in range(1, count + 1)],
-        )
-        await db.commit()
-
-
-async def list_meta_topics_with_counts(subject_id: int) -> list[dict]:
-    async with aiosqlite.connect(get_db_path()) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            """
-            SELECT t.id, t.number, COUNT(q.id) AS people_count
-            FROM meta_topics t
-            LEFT JOIN meta_queue q ON q.topic_id = t.id
-            WHERE t.subject_id = ?
-            GROUP BY t.id
-            ORDER BY t.number ASC
-            """,
-            (subject_id,),
-        )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-
-
 async def get_meta_topic(topic_id: int) -> dict | None:
     async with aiosqlite.connect(get_db_path()) as db:
         db.row_factory = aiosqlite.Row
@@ -215,7 +182,63 @@ async def get_meta_topic(topic_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-async def get_user_meta_queue_entry(subject_id: int, user_id: int) -> dict | None:
+async def get_session_totals(subject_id: int) -> dict[int, int]:
+    """Суммарное число человек в очереди по каждому из 3 занятий (по всем темам)."""
+    totals = {position: 0 for position in range(1, META_SESSIONS_COUNT + 1)}
+    async with aiosqlite.connect(get_db_path()) as db:
+        cursor = await db.execute(
+            """
+            SELECT session_position, COUNT(*) FROM meta_queue
+            WHERE topic_id IN (SELECT id FROM meta_topics WHERE subject_id = ?)
+            GROUP BY session_position
+            """,
+            (subject_id,),
+        )
+        rows = await cursor.fetchall()
+        for session_position, count in rows:
+            totals[session_position] = count
+    return totals
+
+
+async def get_topics_for_session(subject_id: int, session_position: int) -> list[dict]:
+    """Все темы предмета с числом человек в очереди именно на это занятие."""
+    async with aiosqlite.connect(get_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT t.id, t.number, COUNT(q.id) AS people_count
+            FROM meta_topics t
+            LEFT JOIN meta_queue q ON q.topic_id = t.id AND q.session_position = ?
+            WHERE t.subject_id = ?
+            GROUP BY t.id
+            ORDER BY t.number ASC
+            """,
+            (session_position, subject_id),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_user_meta_queue_entries(subject_id: int, user_id: int) -> list[dict]:
+    """Все текущие записи пользователя по предмету (по одной на занятие)."""
+    async with aiosqlite.connect(get_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT q.topic_id, q.session_position, t.number
+            FROM meta_queue q
+            JOIN meta_topics t ON t.id = q.topic_id
+            WHERE t.subject_id = ? AND q.user_id = ?
+            ORDER BY q.session_position ASC
+            """,
+            (subject_id, user_id),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_user_entry_for_session(subject_id: int, session_position: int, user_id: int) -> dict | None:
+    """Запись пользователя именно на это занятие (если есть)."""
     async with aiosqlite.connect(get_db_path()) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
@@ -223,19 +246,23 @@ async def get_user_meta_queue_entry(subject_id: int, user_id: int) -> dict | Non
             SELECT q.topic_id, t.number
             FROM meta_queue q
             JOIN meta_topics t ON t.id = q.topic_id
-            WHERE t.subject_id = ? AND q.user_id = ?
+            WHERE t.subject_id = ? AND q.session_position = ? AND q.user_id = ?
             """,
-            (subject_id, user_id),
+            (subject_id, session_position, user_id),
         )
         row = await cursor.fetchone()
         return dict(row) if row else None
 
 
-async def get_queue_position(topic_id: int, user_id: int) -> int | None:
+async def get_queue_position(topic_id: int, session_position: int, user_id: int) -> int | None:
     async with aiosqlite.connect(get_db_path()) as db:
         cursor = await db.execute(
-            "SELECT user_id FROM meta_queue WHERE topic_id = ? ORDER BY joined_at ASC",
-            (topic_id,),
+            """
+            SELECT user_id FROM meta_queue
+            WHERE topic_id = ? AND session_position = ?
+            ORDER BY joined_at ASC
+            """,
+            (topic_id, session_position),
         )
         rows = await cursor.fetchall()
         for index, row in enumerate(rows, start=1):
@@ -244,23 +271,51 @@ async def get_queue_position(topic_id: int, user_id: int) -> int | None:
         return None
 
 
-async def join_meta_queue(topic_id: int, user_id: int, user_name: str) -> None:
+async def join_meta_queue(topic_id: int, session_position: int, user_id: int, user_name: str) -> None:
     async with aiosqlite.connect(get_db_path()) as db:
         await db.execute(
-            "INSERT INTO meta_queue (topic_id, user_id, user_name, joined_at) VALUES (?, ?, ?, ?)",
-            (topic_id, user_id, user_name, datetime.now().isoformat()),
+            """
+            INSERT INTO meta_queue (topic_id, session_position, user_id, user_name, joined_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (topic_id, session_position, user_id, user_name, datetime.now().isoformat()),
         )
         await db.commit()
 
 
-async def leave_meta_queue(subject_id: int, user_id: int) -> bool:
+async def leave_meta_queue(subject_id: int, session_position: int, user_id: int) -> bool:
+    """Убирает запись пользователя именно с этого занятия (другие его записи не трогает)."""
     async with aiosqlite.connect(get_db_path()) as db:
         cursor = await db.execute(
             """
             DELETE FROM meta_queue
-            WHERE user_id = ? AND topic_id IN (SELECT id FROM meta_topics WHERE subject_id = ?)
+            WHERE user_id = ? AND session_position = ?
+              AND topic_id IN (SELECT id FROM meta_topics WHERE subject_id = ?)
             """,
-            (user_id, subject_id),
+            (user_id, session_position, subject_id),
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def shift_meta_sessions(subject_id: int) -> None:
+    """Занятие 1 прошло: его очередь удаляется, 2→1, 3→2, новое 3 — пустое."""
+    async with aiosqlite.connect(get_db_path()) as db:
+        await db.execute(
+            """
+            DELETE FROM meta_queue
+            WHERE session_position = 1
+              AND topic_id IN (SELECT id FROM meta_topics WHERE subject_id = ?)
+            """,
+            (subject_id,),
+        )
+        await db.execute(
+            """
+            UPDATE meta_queue
+            SET session_position = session_position - 1
+            WHERE session_position IN (2, 3)
+              AND topic_id IN (SELECT id FROM meta_topics WHERE subject_id = ?)
+            """,
+            (subject_id,),
+        )
+        await db.commit()

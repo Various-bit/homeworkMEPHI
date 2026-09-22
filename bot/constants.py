@@ -14,3 +14,5 @@ SUBJECTS: list[str] = [
 ]
 
 META_SUBJECT_NAME = "Социогуманитарные метаязыки познания"
+META_TOPICS_COUNT = 7
+META_SESSIONS_COUNT = 3

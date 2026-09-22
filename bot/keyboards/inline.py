@@ -42,22 +42,31 @@ def confirm_homework_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def meta_topics_kb(topics: list[dict]) -> InlineKeyboardMarkup:
+def meta_sessions_overview_kb(totals: dict[int, int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for topic in topics:
-        builder.button(
-            text=f"Тема {topic['number']} — {topic['people_count']} чел.",
-            callback_data=f"mtopic:{topic['id']}",
-        )
+    for position, count in sorted(totals.items()):
+        builder.button(text=f"Занятие {position} — {count} чел.", callback_data=f"msession:{position}")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def meta_topic_detail_kb(topic_id: int, joined: bool) -> InlineKeyboardMarkup:
+def meta_topics_for_session_kb(session_position: int, topics: list[dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for topic in topics:
+        builder.button(
+            text=f"Тема {topic['number']} — {topic['people_count']} чел.",
+            callback_data=f"mtopic:{session_position}:{topic['id']}",
+        )
+    builder.button(text="⬅️ К занятиям", callback_data="mback")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def meta_cell_detail_kb(session_position: int, joined: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if joined:
-        builder.button(text="🚪 Выйти из очереди", callback_data=f"mleave:{topic_id}")
-    builder.button(text="⬅️ К списку тем", callback_data="mback")
+        builder.button(text="🚪 Выйти из очереди", callback_data=f"mleave:{session_position}")
+    builder.button(text="⬅️ К темам", callback_data=f"msession:{session_position}")
     builder.adjust(1)
     return builder.as_markup()
 
