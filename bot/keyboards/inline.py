@@ -28,9 +28,13 @@ def homework_list_kb(subject_id: int, date: str, items: list[dict]) -> InlineKey
     return builder.as_markup()
 
 
-def back_to_homework_kb(subject_id: int, date: str) -> InlineKeyboardMarkup:
+def back_to_homework_kb(
+    subject_id: int, date: str, homework_id: int | None = None, can_delete: bool = False
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="⬅️ Назад к списку", callback_data=f"date:{subject_id}:{date}")
+    if can_delete and homework_id is not None:
+        builder.row(InlineKeyboardButton(text="🗑 Удалить ДЗ", callback_data=f"delhw:{homework_id}"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад к списку", callback_data=f"date:{subject_id}:{date}"))
     return builder.as_markup()
 
 
@@ -38,6 +42,14 @@ def confirm_homework_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Сохранить", callback_data="confirm_hw")
     builder.button(text="❌ Отмена", callback_data="cancel_hw")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def confirm_delete_homework_kb(homework_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да, удалить", callback_data=f"delhw_yes:{homework_id}")
+    builder.button(text="❌ Отмена", callback_data=f"delhw_no:{homework_id}")
     builder.adjust(2)
     return builder.as_markup()
 

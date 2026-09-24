@@ -7,7 +7,14 @@ from bot.constants import META_SUBJECT_NAME
 from bot.database import requests as db
 from bot.filters.roles import IsAdmin
 from bot.keyboards.reply import main_menu, cancel_kb, skip_or_cancel_kb
-from bot.keyboards.inline import confirm_homework_kb, subjects_kb
+from bot.keyboards.inline import (
+    back_to_homework_kb,
+    confirm_delete_homework_kb,
+    confirm_homework_kb,
+    dates_kb,
+    homework_list_kb,
+    subjects_kb,
+)
 from bot.states.states import AddHomework
 
 router = Router()
@@ -133,5 +140,68 @@ async def cancel_homework(callback: CallbackQuery, state: FSMContext, config: Co
     is_super = callback.from_user.id in config.super_admin_ids
     await callback.message.answer(
         "Отменено.", reply_markup=main_menu(is_admin=True, is_super_admin=is_super)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("delhw:"))
+async def ask_delete_homework(callback: CallbackQuery) -> None:
+    homework_id = int(callback.data.removeprefix("delhw:"))
+    item = await db.get_homework(homework_id)
+    if item is None:
+        await callback.answer("Это ДЗ уже удалено.", show_alert=True)
+        return
+
+    text = (
+        "Удалить это задание без возможности восстановить?\n\n"
+        f"📘 <b>{item['subject_name']}</b> · {item['created_date']}\n{item['description']}"
+    )
+    await callback.message.edit_text(text, reply_markup=confirm_delete_homework_kb(homework_id))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("delhw_yes:"))
+async def do_delete_homework(callback: CallbackQuery) -> None:
+    homework_id = int(callback.data.removeprefix("delhw_yes:"))
+    item = await db.get_homework(homework_id)
+    if item is None:
+        await callback.answer("Это ДЗ уже удалено.", show_alert=True)
+        return
+
+    await db.delete_homework(homework_id)
+
+    items = await db.get_homework_by_subject_date(item["subject_id"], item["created_date"])
+    if items:
+        await callback.message.edit_text(
+            f"🗑 Удалено.\n\n«{item['subject_name']}» · {item['created_date']}:",
+            reply_markup=homework_list_kb(item["subject_id"], item["created_date"], items),
+        )
+    else:
+        dates = await db.get_dates_for_subject(item["subject_id"])
+        if dates:
+            await callback.message.edit_text(
+                f"🗑 Удалено. На {item['created_date']} больше нет заданий по «{item['subject_name']}».",
+                reply_markup=dates_kb(item["subject_id"], dates),
+            )
+        else:
+            await callback.message.edit_text(
+                f"🗑 Удалено. По «{item['subject_name']}» пока нет заданий."
+            )
+    await callback.answer("Удалено")
+
+
+@router.callback_query(F.data.startswith("delhw_no:"))
+async def cancel_delete_homework(callback: CallbackQuery) -> None:
+    homework_id = int(callback.data.removeprefix("delhw_no:"))
+    item = await db.get_homework(homework_id)
+    if item is None:
+        await callback.answer("Это ДЗ уже удалено.", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "Что дальше?",
+        reply_markup=back_to_homework_kb(
+            item["subject_id"], item["created_date"], homework_id=homework_id, can_delete=True
+        ),
     )
     await callback.answer()

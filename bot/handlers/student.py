@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 
+from bot.config import Config
 from bot.database import requests as db
 from bot.keyboards.inline import subjects_kb, dates_kb, homework_list_kb, back_to_homework_kb
 
@@ -77,13 +78,15 @@ async def show_date(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("hw:"))
-async def show_homework(callback: CallbackQuery) -> None:
+async def show_homework(callback: CallbackQuery, config: Config) -> None:
     homework_id = int(callback.data.removeprefix("hw:"))
     item = await db.get_homework(homework_id)
 
     if item is None:
         await callback.answer("Это ДЗ уже удалено.", show_alert=True)
         return
+
+    is_admin = callback.from_user.id in config.super_admin_ids or await db.is_admin(callback.from_user.id)
 
     caption = (
         f"📘 <b>{item['subject_name']}</b>\n\n"
@@ -100,6 +103,9 @@ async def show_homework(callback: CallbackQuery) -> None:
         await callback.message.answer(caption)
 
     await callback.message.answer(
-        "Что дальше?", reply_markup=back_to_homework_kb(item["subject_id"], item["created_date"])
+        "Что дальше?",
+        reply_markup=back_to_homework_kb(
+            item["subject_id"], item["created_date"], homework_id=item["id"], can_delete=is_admin
+        ),
     )
     await callback.answer()
